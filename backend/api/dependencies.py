@@ -16,11 +16,17 @@ _db: AsyncIOMotorDatabase | None = None
 async def connect_db():
     """Create the Motor client and select the database. Called at startup."""
     global _client, _db
-    _client = AsyncIOMotorClient(settings.MONGO_URI)
-    _db = _client[settings.DB_NAME]
-
-    # Create index on the token field for fast lookups
-    await _db.jobs.create_index("token", unique=True)
+    try:
+        _client = AsyncIOMotorClient(settings.MONGO_URI, serverSelectionTimeoutMS=5000)
+        _db = _client[settings.DB_NAME]
+        # Create index on the token field for fast lookups
+        await _db.jobs.create_index("token", unique=True)
+        print("[INFO] MongoDB connected and indexes verified")
+    except Exception as e:
+        print(f"[WARN] MongoDB startup index creation notice: {e}")
+        # Keep client and db assigned so it can reconnect when MongoDB is ready
+        _client = AsyncIOMotorClient(settings.MONGO_URI, serverSelectionTimeoutMS=5000)
+        _db = _client[settings.DB_NAME]
 
 
 async def close_db():

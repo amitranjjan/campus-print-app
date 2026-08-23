@@ -310,10 +310,13 @@ export default function StudentView() {
         } else if (typeof detail === 'object') {
           errorMsg = JSON.stringify(detail)
         }
+      } else if (err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
+        const targetUrl = api.defaults.baseURL || window.location.origin
+        errorMsg = `Network Error: Cannot reach backend at ${targetUrl}. Check VITE_API_URL or backend status.`
       } else if (err.message) {
         errorMsg = err.message
       }
-      toast.error(errorMsg)
+      toast.error(errorMsg, { duration: 6000 })
     } finally {
       setIsSubmitting(false)
     }
