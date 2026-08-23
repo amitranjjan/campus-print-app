@@ -16,6 +16,12 @@ class Settings:
     FIREBASE_STORAGE_BUCKET: str = os.getenv(
         "FIREBASE_STORAGE_BUCKET", ""
     )
+    FIREBASE_SERVICE_ACCOUNT: str = os.getenv(
+        "FIREBASE_SERVICE_ACCOUNT", ""
+    )
+    FIREBASE_CREDENTIALS_JSON: str = os.getenv(
+        "FIREBASE_CREDENTIALS_JSON", ""
+    )
 
     # Comma-separated list of admin email addresses
     ADMIN_EMAILS: list[str] = [

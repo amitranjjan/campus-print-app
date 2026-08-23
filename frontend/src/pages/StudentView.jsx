@@ -158,9 +158,7 @@ export default function StudentView() {
       formData.append('files_settings', JSON.stringify(filesSettings))
       formData.append('payment_method', paymentMethod)
 
-      const res = await api.post('/api/jobs', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
+      const res = await api.post('/api/jobs', formData)
 
       const jobToken = res.data.token
       const jobCost = res.data.totalCost || pricingSummary.grandTotal
@@ -302,7 +300,20 @@ export default function StudentView() {
       toast.success('Payment verified! Top priority print job queued.')
     } catch (err) {
       console.error('Submission error:', err)
-      toast.error(err.response?.data?.detail || 'Failed to submit print job')
+      let errorMsg = 'Failed to submit print job'
+      if (err.response?.data?.detail) {
+        const detail = err.response.data.detail
+        if (typeof detail === 'string') {
+          errorMsg = detail
+        } else if (Array.isArray(detail)) {
+          errorMsg = detail.map((d) => (typeof d === 'object' ? d.msg || JSON.stringify(d) : String(d))).join(', ')
+        } else if (typeof detail === 'object') {
+          errorMsg = JSON.stringify(detail)
+        }
+      } else if (err.message) {
+        errorMsg = err.message
+      }
+      toast.error(errorMsg)
     } finally {
       setIsSubmitting(false)
     }

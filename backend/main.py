@@ -38,32 +38,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-origins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "https://campus-print-app.vercel.app",  # Add your exact Vercel URL
-    "*"  # Or use "*" during testing to allow all origins
-]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins for testing
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # -- CORS --
-# Allow the React frontend (localhost:3000) to call the API
+# Allow all origins (localhost:3000, localhost:5173, Vercel, etc.) with credentials
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origin_regex=r"^https?:\/\/.*$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # -- Serve uploaded files as static files --

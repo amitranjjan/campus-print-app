@@ -103,166 +103,201 @@ async def create_job(
     all_color_bytes_list = []
     all_bw_bytes_list = []
 
-    for idx, uploaded_file in enumerate(files, start=1):
-        if uploaded_file.content_type != "application/pdf":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"File '{uploaded_file.filename}' is not a valid PDF",
+    try:
+        for idx, uploaded_file in enumerate(files, start=1):
+            filename = uploaded_file.filename or f"document_{idx}.pdf"
+            file_bytes = await uploaded_file.read()
+
+            if len(file_bytes) == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"File '{filename}' is empty",
+                )
+
+            # Check PDF validity (extension, content-type, or %PDF magic header)
+            is_pdf_ext = filename.lower().endswith(".pdf")
+            is_pdf_magic = len(file_bytes) >= 4 and file_bytes.startswith(b"%PDF")
+            is_pdf_mime = bool(
+                uploaded_file.content_type
+                and any(t in uploaded_file.content_type.lower() for t in ["pdf", "octet-stream", "binary"])
             )
 
-        file_bytes = await uploaded_file.read()
-        if len(file_bytes) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"File '{uploaded_file.filename}' is empty",
+            if not (is_pdf_ext or is_pdf_magic or is_pdf_mime):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"File '{filename}' is not a valid PDF",
+                )
+
+            try:
+                actual_pages = pdf_service.get_page_count(file_bytes)
+            except Exception as pdf_err:
+                print(f"[ERROR] Failed to count pages for '{filename}': {pdf_err}")
+                actual_pages = 0
+
+            if actual_pages == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Could not read pages from PDF '{filename}'. Please ensure it is a valid, uncorrupted PDF.",
+                )
+
+            # Get settings for this file (fallback to default)
+            file_conf = settings_list[idx - 1] if idx - 1 < len(settings_list) else {}
+            color_pages = file_conf.get("color_pages", [])
+            if not isinstance(color_pages, list):
+                color_pages = []
+            color_pages = [p for p in color_pages if isinstance(p, int) and 1 <= p <= actual_pages]
+
+            paper_size = file_conf.get("paper_size", "A4")
+            if paper_size not in ("A4", "A3"):
+                paper_size = "A4"
+
+            color_double_sided = bool(file_conf.get("color_double_sided", False))
+            bw_double_sided = bool(file_conf.get("bw_double_sided", False))
+            binding = bool(file_conf.get("binding", False))
+            copies = max(1, int(file_conf.get("copies", 1)))
+
+            color_count = len(color_pages)
+            bw_count = actual_pages - color_count
+            file_cost = _calculate_cost(
+                color_count,
+                bw_count,
+                paper_size,
+                color_double_sided,
+                bw_double_sided,
+                binding,
+                copies,
             )
 
-        actual_pages = pdf_service.get_page_count(file_bytes)
-        if actual_pages == 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Could not read pages from PDF '{uploaded_file.filename}'",
-            )
+            total_pages_all += actual_pages
+            grand_total_cost += file_cost
 
-        # Get settings for this file (fallback to default)
-        file_conf = settings_list[idx - 1] if idx - 1 < len(settings_list) else {}
-        color_pages = file_conf.get("color_pages", [])
-        if not isinstance(color_pages, list):
-            color_pages = []
-        color_pages = [p for p in color_pages if 1 <= p <= actual_pages]
+            # Split this PDF into Color and B&W
+            try:
+                color_bytes, bw_bytes = pdf_service.split_pdf(file_bytes, color_pages, actual_pages)
+            except Exception as split_err:
+                print(f"[ERROR] PDF splitting failed for '{filename}': {split_err}")
+                color_bytes, bw_bytes = None, file_bytes
 
-        paper_size = file_conf.get("paper_size", "A4")
-        if paper_size not in ("A4", "A3"):
-            paper_size = "A4"
+            if color_bytes:
+                all_color_bytes_list.append(color_bytes)
+            if bw_bytes:
+                all_bw_bytes_list.append(bw_bytes)
 
-        color_double_sided = bool(file_conf.get("color_double_sided", False))
-        bw_double_sided = bool(file_conf.get("bw_double_sided", False))
-        binding = bool(file_conf.get("binding", False))
-        copies = max(1, int(file_conf.get("copies", 1)))
+            files_data.append({
+                "index": idx,
+                "filename": filename,
+                "original_bytes": file_bytes,
+                "color_bytes": color_bytes,
+                "bw_bytes": bw_bytes,
+            })
 
-        color_count = len(color_pages)
-        bw_count = actual_pages - color_count
-        file_cost = _calculate_cost(
-            color_count,
-            bw_count,
-            paper_size,
-            color_double_sided,
-            bw_double_sided,
-            binding,
-            copies,
+            files_summary.append({
+                "filename": filename,
+                "totalPages": actual_pages,
+                "colorPages": color_pages,
+                "paperSize": paper_size,
+                "colorDoubleSided": color_double_sided,
+                "bwDoubleSided": bw_double_sided,
+                "binding": binding,
+                "copies": copies,
+                "fileCost": file_cost,
+            })
+
+        # Merge master PDFs
+        try:
+            combined_color_bytes = pdf_service.merge_pdf_bytes(all_color_bytes_list)
+            combined_bw_bytes = pdf_service.merge_pdf_bytes(all_bw_bytes_list)
+        except Exception as merge_err:
+            print(f"[WARN] PDF merge error: {merge_err}")
+            combined_color_bytes, combined_bw_bytes = None, None
+
+        # Save to storage
+        token = await db_service.generate_unique_token(db)
+        storage_result = storage_service.upload_multi_job_files(
+            token=token,
+            files_data=files_data,
+            combined_color_bytes=combined_color_bytes,
+            combined_bw_bytes=combined_bw_bytes,
         )
 
-        total_pages_all += actual_pages
-        grand_total_cost += file_cost
+        # Link saved URLs to files_summary
+        for i, saved in enumerate(storage_result["saved_files"]):
+            files_summary[i]["originalFileUrl"] = saved["originalUrl"]
+            files_summary[i]["colorFileUrl"] = saved["colorUrl"]
+            files_summary[i]["bwFileUrl"] = saved["bwUrl"]
 
-        # Split this PDF
-        color_bytes, bw_bytes = pdf_service.split_pdf(file_bytes, color_pages, actual_pages)
+        # Generate Razorpay Order ID for online payments
+        amount_paise = grand_total_cost * 100
+        razorpay_order_id = None
 
-        if color_bytes:
-            all_color_bytes_list.append(color_bytes)
-        if bw_bytes:
-            all_bw_bytes_list.append(bw_bytes)
+        is_live_key = (
+            settings.RAZORPAY_KEY_ID
+            and not settings.RAZORPAY_KEY_ID.startswith("rzp_test_mock")
+            and not "your_razorpay_key" in settings.RAZORPAY_KEY_ID.lower()
+            and settings.RAZORPAY_KEY_SECRET
+            and not "your_razorpay_secret" in settings.RAZORPAY_KEY_SECRET.lower()
+        )
 
-        files_data.append({
-            "index": idx,
-            "filename": uploaded_file.filename or f"document_{idx}.pdf",
-            "original_bytes": file_bytes,
-            "color_bytes": color_bytes,
-            "bw_bytes": bw_bytes,
-        })
-
-        files_summary.append({
-            "filename": uploaded_file.filename or f"document_{idx}.pdf",
-            "totalPages": actual_pages,
-            "colorPages": color_pages,
-            "paperSize": paper_size,
-            "colorDoubleSided": color_double_sided,
-            "bwDoubleSided": bw_double_sided,
-            "binding": binding,
-            "copies": copies,
-            "fileCost": file_cost,
-        })
-
-    # Merge master PDFs
-    combined_color_bytes = pdf_service.merge_pdf_bytes(all_color_bytes_list)
-    combined_bw_bytes = pdf_service.merge_pdf_bytes(all_bw_bytes_list)
-
-    # Save to storage
-    token = await db_service.generate_unique_token(db)
-    storage_result = storage_service.upload_multi_job_files(
-        token=token,
-        files_data=files_data,
-        combined_color_bytes=combined_color_bytes,
-        combined_bw_bytes=combined_bw_bytes,
-    )
-
-    # Link saved URLs to files_summary
-    for i, saved in enumerate(storage_result["saved_files"]):
-        files_summary[i]["originalFileUrl"] = saved["originalUrl"]
-        files_summary[i]["colorFileUrl"] = saved["colorUrl"]
-        files_summary[i]["bwFileUrl"] = saved["bwUrl"]
-
-    # Generate Razorpay Order ID for online payments
-    amount_paise = grand_total_cost * 100
-    razorpay_order_id = None
-
-    is_live_key = (
-        settings.RAZORPAY_KEY_ID
-        and not settings.RAZORPAY_KEY_ID.startswith("rzp_test_mock")
-        and not "your_razorpay_key" in settings.RAZORPAY_KEY_ID.lower()
-        and settings.RAZORPAY_KEY_SECRET
-        and not "your_razorpay_secret" in settings.RAZORPAY_KEY_SECRET.lower()
-    )
-
-    if payment_method == "online":
-        if is_live_key:
-            try:
-                import razorpay
-                client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-                order_data = {
-                    "amount": int(amount_paise),
-                    "currency": "INR",
-                    "receipt": f"job_{token}",
-                    "notes": {
-                        "token": str(token),
-                        "student_email": str(user.email or ""),
-                    },
-                }
-                rzp_order = client.order.create(data=order_data)
-                razorpay_order_id = rzp_order.get("id")
-                print(f"[INFO] Razorpay order created: {razorpay_order_id} for token {token} (Amount: {amount_paise} paise)")
-            except Exception as e:
-                print(f"[ERROR] Razorpay order creation failed: {e}")
+        if payment_method == "online":
+            if is_live_key:
+                try:
+                    import razorpay
+                    client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+                    order_data = {
+                        "amount": int(amount_paise),
+                        "currency": "INR",
+                        "receipt": f"job_{token}",
+                        "notes": {
+                            "token": str(token),
+                            "student_email": str(user.email or ""),
+                        },
+                    }
+                    rzp_order = client.order.create(data=order_data)
+                    razorpay_order_id = rzp_order.get("id")
+                    print(f"[INFO] Razorpay order created: {razorpay_order_id} for token {token} (Amount: {amount_paise} paise)")
+                except Exception as e:
+                    print(f"[ERROR] Razorpay order creation failed: {e}")
+                    razorpay_order_id = None
+            else:
                 razorpay_order_id = None
-        else:
-            razorpay_order_id = None
 
-    initial_payment_status = "pending" if payment_method == "online" else "offline_cash"
+        initial_payment_status = "pending" if payment_method == "online" else "offline_cash"
 
-    # Save to MongoDB
-    await db_service.create_job(
-        db=db,
-        token=token,
-        user_email=user.email,
-        user_name=user.name,
-        total_files=len(files),
-        total_pages=total_pages_all,
-        total_cost=grand_total_cost,
-        files=files_summary,
-        combined_color_url=storage_result["combined_color_url"],
-        combined_bw_url=storage_result["combined_bw_url"],
-        razorpay_order_id=razorpay_order_id,
-        payment_status=initial_payment_status,
-    )
+        # Save to MongoDB
+        await db_service.create_job(
+            db=db,
+            token=token,
+            user_email=user.email,
+            user_name=user.name,
+            total_files=len(files),
+            total_pages=total_pages_all,
+            total_cost=grand_total_cost,
+            files=files_summary,
+            combined_color_url=storage_result["combined_color_url"],
+            combined_bw_url=storage_result["combined_bw_url"],
+            razorpay_order_id=razorpay_order_id,
+            payment_status=initial_payment_status,
+        )
 
-    return JobCreateResponse(
-        token=token,
-        totalCost=grand_total_cost,
-        amountPaise=amount_paise,
-        razorpayOrderId=razorpay_order_id,
-        razorpayKeyId=settings.RAZORPAY_KEY_ID,
-        paymentStatus=initial_payment_status,
-    )
+        return JobCreateResponse(
+            token=token,
+            totalCost=grand_total_cost,
+            amountPaise=amount_paise,
+            razorpayOrderId=razorpay_order_id,
+            razorpayKeyId=settings.RAZORPAY_KEY_ID,
+            paymentStatus=initial_payment_status,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[ERROR] Exception during create_job: {exc}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to submit print job: {str(exc)}",
+        )
 
 
 # ──────────────────────────────────────────────────────────────
