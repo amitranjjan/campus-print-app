@@ -39,6 +39,7 @@ alter table public.jobs enable row level security;
 
 -- Policy: Allow service role (backend API) and anon full access to read/write jobs
 -- Note: Authentication is enforced on the FastAPI backend using Firebase JWTs.
+drop policy if exists "Allow backend full access on jobs" on public.jobs;
 create policy "Allow backend full access on jobs"
     on public.jobs
     for all
@@ -50,25 +51,29 @@ insert into storage.buckets (id, name, public)
 values ('print-jobs', 'print-jobs', true)
 on conflict (id) do update set public = true;
 
--- Policy: Allow public download of PDFs in 'print-jobs' bucket
+-- Policies for 'print-jobs' bucket
+drop policy if exists "Public Access to Print Job PDFs" on storage.objects;
 create policy "Public Access to Print Job PDFs"
     on storage.objects
     for select
     using (bucket_id = 'print-jobs');
 
--- Policy: Allow backend (authenticated or service role) to upload PDFs
+drop policy if exists "Allow Uploads to Print Job PDFs" on storage.objects;
 create policy "Allow Uploads to Print Job PDFs"
     on storage.objects
     for insert
     with check (bucket_id = 'print-jobs');
 
+drop policy if exists "Allow Updates to Print Job PDFs" on storage.objects;
 create policy "Allow Updates to Print Job PDFs"
     on storage.objects
     for update
     using (bucket_id = 'print-jobs');
 
+drop policy if exists "Allow Deletes on Print Job PDFs" on storage.objects;
 create policy "Allow Deletes on Print Job PDFs"
     on storage.objects
     for delete
     using (bucket_id = 'print-jobs');
+
 
