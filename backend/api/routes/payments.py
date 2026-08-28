@@ -3,7 +3,7 @@ import hashlib
 from typing import Optional
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from supabase import Client
 import razorpay
 
 from api.dependencies import get_current_user, get_db
@@ -64,7 +64,7 @@ def _get_razorpay_client():
 async def create_payment_order(
     req: CreateOrderRequest,
     user: FirebaseUser = Depends(get_current_user),
-    db: AsyncIOMotorDatabase = Depends(get_db),
+    db: Client = Depends(get_db),
 ):
     """
     Create a Razorpay order for a specific print job.
@@ -76,7 +76,7 @@ async def create_payment_order(
             detail=f"Print job '{req.token}' not found",
         )
 
-    total_cost = job.get("totalCost", 0)
+    total_cost = job.get("totalCost") or job.get("total_cost") or 0
     amount_paise = total_cost * 100
 
     client = _get_razorpay_client()
@@ -103,10 +103,10 @@ async def create_payment_order(
         order_id = f"order_demo_{req.token}_{int(amount_paise)}"
 
     # Save order ID on job in DB
-    await db.jobs.update_one(
-        {"token": req.token.upper()},
-        {"$set": {"razorpayOrderId": order_id}},
-    )
+    try:
+        db.table("jobs").update({"razorpay_order_id": order_id}).eq("token", req.token.upper()).execute()
+    except Exception as e:
+        print(f"[WARN] Failed to update razorpay_order_id in Supabase: {e}")
 
     return CreateOrderResponse(
         orderId=order_id,
@@ -121,7 +121,7 @@ async def create_payment_order(
 async def verify_payment(
     req: VerifyPaymentRequest,
     user: FirebaseUser = Depends(get_current_user),
-    db: AsyncIOMotorDatabase = Depends(get_db),
+    db: Client = Depends(get_db),
 ):
     """
     Verify payment signature from Razorpay checkout and mark job as paid.

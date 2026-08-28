@@ -2,7 +2,7 @@ import json
 import math
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, HTTPException, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from supabase import Client
 
 from api.dependencies import get_current_user, get_db
 from core.config import settings
@@ -62,7 +62,7 @@ async def create_job(
     files_settings: str = Form("[]"),
     payment_method: str = Form("online"),
     user: FirebaseUser = Depends(get_current_user),
-    db: AsyncIOMotorDatabase = Depends(get_db),
+    db: Client = Depends(get_db),
 ):
     """
     Create a new print job supporting up to 5 PDF files.
@@ -308,7 +308,7 @@ async def get_my_history(
     request: Request,
     limit: int = 50,
     user: FirebaseUser = Depends(get_current_user),
-    db: AsyncIOMotorDatabase = Depends(get_db),
+    db: Client = Depends(get_db),
 ):
     """
     Retrieve print jobs and payment history for the logged-in student.
@@ -387,7 +387,7 @@ async def get_print_queue(
     request: Request,
     limit: int = 50,
     user: FirebaseUser = Depends(get_current_user),
-    db: AsyncIOMotorDatabase = Depends(get_db),
+    db: Client = Depends(get_db),
 ):
     """
     Retrieve active pending jobs in real time for the admin live print feed.
@@ -466,7 +466,7 @@ async def get_job(
     token: str,
     request: Request,
     user: FirebaseUser = Depends(get_current_user),
-    db: AsyncIOMotorDatabase = Depends(get_db),
+    db: Client = Depends(get_db),
 ):
     """
     Retrieve a print job by its 5-digit token.
@@ -546,7 +546,7 @@ async def get_job(
 async def complete_job(
     token: str,
     user: FirebaseUser = Depends(get_current_user),
-    db: AsyncIOMotorDatabase = Depends(get_db),
+    db: Client = Depends(get_db),
 ):
     """
     Mark a print job as completed.
@@ -585,7 +585,7 @@ async def complete_job(
 async def cancel_job(
     token: str,
     user: FirebaseUser = Depends(get_current_user),
-    db: AsyncIOMotorDatabase = Depends(get_db),
+    db: Client = Depends(get_db),
 ):
     """
     Cancel an active print order by the student who created it.

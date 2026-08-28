@@ -8,3 +8,4 @@ PyPDF2>=3.0.1
 python-multipart>=0.0.6
 pydantic>=2.5.0
 razorpay>=1.4.1
+supabase>=2.0.0

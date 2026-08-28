@@ -21,13 +21,13 @@ async def lifespan(app: FastAPI):
     # -- Startup --
     init_firebase()
     await connect_db()
-    print("[INFO] MongoDB connected and indexes verified")
+    print("[INFO] Campus Print Backend initialized and ready")
 
     yield
 
     # -- Shutdown --
     await close_db()
-    print("[INFO] MongoDB connection closed")
+    print("[INFO] Campus Print Backend shutdown complete")
 
 
 app = FastAPI(
