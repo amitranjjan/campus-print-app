@@ -13,25 +13,28 @@ class Settings:
     # Supabase Settings
     @property
     def SUPABASE_URL(self) -> str:
-        raw = os.getenv("SUPABASE_URL", "").strip()
+        load_dotenv(override=True)
+        raw = os.getenv("SUPABASE_URL", "").strip().strip("'\"")
         if not raw:
             return ""
-        # Strip trailing slashes and redundant /rest/v1 paths
+        # Strip trailing slashes and any /rest/v1 or /rest or /v1 suffix
         url = raw.rstrip("/")
-        if url.endswith("/rest/v1"):
-            url = url[:-len("/rest/v1")].rstrip("/")
+        for suffix in ["/rest/v1", "/rest/v1/", "/rest", "/v1"]:
+            if url.endswith(suffix):
+                url = url[:-len(suffix)].rstrip("/")
         return url
 
     @property
     def SUPABASE_KEY(self) -> str:
+        load_dotenv(override=True)
         return (
             os.getenv("SUPABASE_KEY")
             or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
             or os.getenv("SUPABASE_ANON_KEY")
             or ""
-        ).strip()
+        ).strip().strip("'\"")
 
-    SUPABASE_STORAGE_BUCKET: str = os.getenv("SUPABASE_STORAGE_BUCKET", "print-jobs").strip()
+    SUPABASE_STORAGE_BUCKET: str = os.getenv("SUPABASE_STORAGE_BUCKET", "print-jobs").strip().strip("'\"")
 
     FIREBASE_CREDENTIALS_PATH: str = os.getenv(
         "FIREBASE_CREDENTIALS_PATH", "./firebase-service-account.json"

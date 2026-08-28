@@ -92,7 +92,19 @@ async def create_job(
         if res.data and len(res.data) > 0:
             return _format_job_doc(res.data[0])
     except Exception as e:
+        err_str = str(e)
         print(f"[ERROR] Failed to insert job into Supabase: {e}")
+        if "PGRST125" in err_str or "Invalid path" in err_str:
+            raise RuntimeError(
+                "Supabase 'jobs' table not found or SUPABASE_URL has invalid path. "
+                "1) Ensure SUPABASE_URL is 'https://<project-ref>.supabase.co' (without /rest/v1). "
+                "2) Run the SQL script from 'backend/supabase_schema.sql' in your Supabase SQL Editor."
+            ) from e
+        elif "relation" in err_str and "does not exist" in err_str:
+            raise RuntimeError(
+                "Table 'jobs' does not exist in your Supabase PostgreSQL database. "
+                "Please run 'backend/supabase_schema.sql' in your Supabase SQL Editor."
+            ) from e
         raise e
 
     return _format_job_doc(job_row)
